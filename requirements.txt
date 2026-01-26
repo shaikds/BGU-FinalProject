@@ -1,0 +1,13 @@
+torch
+torchvision
+opencv-python
+pillow
+numpy
+pandas
+tqdm
+huggingface_hub
+rfdetr
+supervision
+scipy
+pyyaml
+inference
