@@ -1,0 +1,10 @@
+﻿outputs/
+weights/
+*.mp4
+*.mkv
+*.pth
+*.pt
+*.tar
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
