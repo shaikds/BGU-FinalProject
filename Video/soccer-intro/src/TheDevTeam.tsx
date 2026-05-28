@@ -15,26 +15,31 @@ const CLAMP = {
   extrapolateRight: "clamp" as const,
 };
 
-// ── Hex grid (inline copy from ThePipeline) ─────────────────────────────────
-function hexPoints(cx: number, cy: number, R: number): string {
-  return Array.from({ length: 6 }, (_, k) => {
-    const a = (Math.PI / 3) * k - Math.PI / 6;
-    return `${(cx + R * Math.cos(a)).toFixed(2)},${(cy + R * Math.sin(a)).toFixed(2)}`;
-  }).join(" ");
-}
-const HEX_R    = 32;
-const HEX_CX   = HEX_R * Math.sqrt(3);
-const HEX_CY   = 2 * HEX_R;
-const HEX_COLS = Math.ceil(1920 / HEX_CX) + 2;
-const HEX_ROWS = Math.ceil(1080 / HEX_CY) + 2;
-const HEXAGONS = Array.from({ length: HEX_COLS }, (_, col) => {
-  const cx = col * HEX_CX - HEX_CX;
-  return Array.from({ length: HEX_ROWS }, (_, row) => {
-    const offset = col % 2 === 1 ? HEX_R : 0;
-    const cy = row * HEX_CY - HEX_CY + offset;
-    return { cx, cy, pts: hexPoints(cx, cy, HEX_R) };
-  });
-}).flat();
+// ── Football pitch geometry (top-down view, fits 1920×1080) ─────────────────
+// Pitch rect: x=40, y=20, w=1840, h=1040. Scale ≈ 17.5 px/m (horiz), 15.3 px/m (vert).
+const PX = 40;   // pitch left
+const PY = 20;   // pitch top
+const PW = 1840; // pitch width
+const PH = 1040; // pitch height
+const MX = PX + PW / 2; // 960 — halfway line x
+const MY = PY + PH / 2; // 540 — centre y
+
+// Penalty area: 16.5m deep × 40.3m wide (centred)
+const PA_D  = 290; // depth (px)
+const PA_H  = 624; // height (px)
+const PA_Y  = MY - PA_H / 2; // 228
+
+// Goal area: 5.5m deep × 18.3m wide
+const GA_D  = 96;
+const GA_H  = 288;
+const GA_Y  = MY - GA_H / 2; // 396
+
+// Penalty spots (11m from goal line = ~193px)
+const PS_OX = 194; // offset from pitch edge
+// Goals (7.32m wide)
+const GOAL_H = 112;
+const GOAL_D = 30;  // depth behind goal line
+const GOAL_Y = MY - GOAL_H / 2; // 484
 
 // ── Timing ─────────────────────────────────────────────────────────────────
 const T = {
@@ -71,41 +76,127 @@ const CAM_DIV_T  = 375;
 const LENS_SCR_X = 960;   // 845 + 115
 const LENS_SCR_Y = 490;   // 375 + 115
 
-// ── Background ──────────────────────────────────────────────────────────────
+// ── Background — top-down football pitch ────────────────────────────────────
 const Background: React.FC<{ frame: number; glowUp: boolean }> = ({ frame, glowUp }) => {
-  const hexPulse = Math.sin(frame * 0.015) * 0.025 + 0.045;
+  // Warm glow above each figure's head when lightbulbs turn on
   const glowOp = glowUp
-    ? interpolate(frame, [T.bulbOn, T.bulbOn + 20], [0.35, 0.75], CLAMP)
-    : 0.35;
-  const glowColor = glowUp ? "80,60,10" : "0,30,90";
+    ? interpolate(frame, [T.bulbOn, T.bulbOn + 20], [0, 0.55], CLAMP)
+    : 0;
+
+  // Grass stripes — 10 vertical bands across the pitch
+  const STRIPE_W = PW / 10; // 184px
+  const STRIPE_DARK  = "#1a6a0a";
+  const STRIPE_LIGHT = "#1f7b0c";
+
+  const W = "white";
+  const LW = 5; // line width
 
   return (
-    <AbsoluteFill style={{ backgroundColor: "#03050A" }}>
-      {/* Central glow — warm yellow tint when bulb is on */}
-      <div style={{
-        position: "absolute",
-        inset: 0,
-        background: `radial-gradient(ellipse 70% 55% at 26% 56%, rgba(${glowColor},${glowOp.toFixed(2)}) 0%, transparent 70%)`,
-      }} />
+    <AbsoluteFill style={{ backgroundColor: "#0d2208" }}>
+      <svg
+        style={{ position: "absolute", width: "100%", height: "100%" }}
+        viewBox="0 0 1920 1080"
+      >
+        <defs>
+          {/* Clip: area outside left penalty area */}
+          <clipPath id="dt-pa-left-clip">
+            <rect x={PX + PA_D} y={PY} width={PW - PA_D} height={PH} />
+          </clipPath>
+          {/* Clip: area outside right penalty area */}
+          <clipPath id="dt-pa-right-clip">
+            <rect x={PX} y={PY} width={PW - PA_D} height={PH} />
+          </clipPath>
+        </defs>
 
-      {/* Hex grid */}
-      <svg style={{ position: "absolute", width: "100%", height: "100%", pointerEvents: "none" }}>
-        {HEXAGONS.map(({ pts }, i) => (
-          <polygon
+        {/* Grass stripes */}
+        {Array.from({ length: 10 }, (_, i) => (
+          <rect
             key={i}
-            points={pts}
-            fill="none"
-            stroke={`rgba(0,160,255,${hexPulse.toFixed(3)})`}
-            strokeWidth={0.5}
+            x={PX + i * STRIPE_W} y={PY}
+            width={STRIPE_W} height={PH}
+            fill={i % 2 === 0 ? STRIPE_DARK : STRIPE_LIGHT}
           />
         ))}
+
+        {/* ── Pitch boundary ── */}
+        <rect x={PX} y={PY} width={PW} height={PH}
+          fill="none" stroke={W} strokeWidth={LW} />
+
+        {/* ── Halfway line ── */}
+        <line x1={MX} y1={PY} x2={MX} y2={PY + PH} stroke={W} strokeWidth={LW} />
+
+        {/* ── Centre circle + spot ── */}
+        <circle cx={MX} cy={MY} r={100} fill="none" stroke={W} strokeWidth={LW} />
+        <circle cx={MX} cy={MY} r={8} fill={W} />
+
+        {/* ── Left penalty area ── */}
+        <rect x={PX} y={PA_Y} width={PA_D} height={PA_H}
+          fill="none" stroke={W} strokeWidth={LW} />
+        {/* Left goal area */}
+        <rect x={PX} y={GA_Y} width={GA_D} height={GA_H}
+          fill="none" stroke={W} strokeWidth={LW} />
+        {/* Left penalty spot */}
+        <circle cx={PX + PS_OX} cy={MY} r={7} fill={W} />
+        {/* Left penalty arc — circle clipped to outside the penalty area */}
+        <circle cx={PX + PS_OX} cy={MY} r={100}
+          fill="none" stroke={W} strokeWidth={LW}
+          clipPath="url(#dt-pa-left-clip)" />
+
+        {/* ── Right penalty area ── */}
+        <rect x={PX + PW - PA_D} y={PA_Y} width={PA_D} height={PA_H}
+          fill="none" stroke={W} strokeWidth={LW} />
+        {/* Right goal area */}
+        <rect x={PX + PW - GA_D} y={GA_Y} width={GA_D} height={GA_H}
+          fill="none" stroke={W} strokeWidth={LW} />
+        {/* Right penalty spot */}
+        <circle cx={PX + PW - PS_OX} cy={MY} r={7} fill={W} />
+        {/* Right penalty arc */}
+        <circle cx={PX + PW - PS_OX} cy={MY} r={100}
+          fill="none" stroke={W} strokeWidth={LW}
+          clipPath="url(#dt-pa-right-clip)" />
+
+        {/* ── Corner arcs (r=46, quarter circles at each corner) ── */}
+        <path d={`M ${PX},${PY + 46} A 46,46 0 0 1 ${PX + 46},${PY}`}
+          fill="none" stroke={W} strokeWidth={LW} />
+        <path d={`M ${PX + PW - 46},${PY} A 46,46 0 0 1 ${PX + PW},${PY + 46}`}
+          fill="none" stroke={W} strokeWidth={LW} />
+        <path d={`M ${PX},${PY + PH - 46} A 46,46 0 0 0 ${PX + 46},${PY + PH}`}
+          fill="none" stroke={W} strokeWidth={LW} />
+        <path d={`M ${PX + PW - 46},${PY + PH} A 46,46 0 0 0 ${PX + PW},${PY + PH - 46}`}
+          fill="none" stroke={W} strokeWidth={LW} />
+
+        {/* ── Goals (net area beyond goal line) ── */}
+        <rect x={PX - GOAL_D} y={GOAL_Y} width={GOAL_D} height={GOAL_H}
+          fill="rgba(255,255,255,0.08)" stroke={W} strokeWidth={4} />
+        <rect x={PX + PW} y={GOAL_Y} width={GOAL_D} height={GOAL_H}
+          fill="rgba(255,255,255,0.08)" stroke={W} strokeWidth={4} />
+
+        {/* ── Warm bulb glows above each figure's head ── */}
+        {glowOp > 0.01 && (
+          <>
+            {/* Dev1 head: screen (500, 600) */}
+            <radialGradient id="dt-glow1" cx="500" cy="600" r="320"
+              gradientUnits="userSpaceOnUse">
+              <stop offset="0%"   stopColor="rgba(255,220,50,1)"  stopOpacity={glowOp} />
+              <stop offset="100%" stopColor="rgba(255,220,50,0)"  stopOpacity={0} />
+            </radialGradient>
+            <rect x={0} y={0} width={1920} height={1080} fill="url(#dt-glow1)" />
+            {/* Dev2 head: screen (1420, 600) */}
+            <radialGradient id="dt-glow2" cx="1420" cy="600" r="320"
+              gradientUnits="userSpaceOnUse">
+              <stop offset="0%"   stopColor="rgba(255,220,50,1)"  stopOpacity={glowOp} />
+              <stop offset="100%" stopColor="rgba(255,220,50,0)"  stopOpacity={0} />
+            </radialGradient>
+            <rect x={0} y={0} width={1920} height={1080} fill="url(#dt-glow2)" />
+          </>
+        )}
       </svg>
 
-      {/* Vignette */}
+      {/* Vignette — darken outer edges */}
       <div style={{
         position: "absolute",
         inset: 0,
-        background: "radial-gradient(ellipse 80% 80% at 50% 50%, transparent 60%, rgba(0,0,0,0.75) 100%)",
+        background: "radial-gradient(ellipse 88% 82% at 50% 50%, transparent 52%, rgba(0,0,0,0.55) 100%)",
         pointerEvents: "none",
       }} />
     </AbsoluteFill>
@@ -302,13 +393,14 @@ const DevFigure: React.FC<DevFigureProps> = ({
 };
 
 // ── LightBulb ──────────────────────────────────────────────────────────────
-// Centred above Dev1's head. Dev1 head screen: (500, 1020 − 420) = (500, 600).
-// Bulb circle centred at screen (500, 460); SVG bulb centre at cy=60, so
-// div top = 460 − 60 = 400.
-const BULB_SCR_X = 500;
+// Reusable — pass `scrX` for the horizontal centre on screen.
+// Both figures share footY=1020, so bulb screen-Y is always 460
+// (head at 1020−420=600, bulb 140px above head, SVG bulb cy=60 → div top=400).
 const BULB_SCR_Y = 460;
 
-const LightBulb: React.FC<{ frame: number; fps: number }> = ({ frame, fps }) => {
+const LightBulb: React.FC<{ frame: number; fps: number; scrX: number }> = ({
+  frame, fps, scrX,
+}) => {
   if (frame < T.bulbAppear - 5) return null;
 
   const sc = spring({
@@ -335,7 +427,7 @@ const LightBulb: React.FC<{ frame: number; fps: number }> = ({ frame, fps }) => 
     <div
       style={{
         position: "absolute",
-        left: BULB_SCR_X - 60,
+        left: scrX - 60,
         top:  BULB_SCR_Y - 60,
         width:  120,
         height: 160,
@@ -784,7 +876,8 @@ export const TheDevTeam: React.FC = () => {
           enterFrom="right"
           appearAt={T.dev2In}
         />
-        <LightBulb frame={frame} fps={fps} />
+        <LightBulb frame={frame} fps={fps} scrX={500} />
+        <LightBulb frame={frame} fps={fps} scrX={1420} />
       </div>
 
       {/* Speech bubble (has its own earlier fade-out) */}
