@@ -552,10 +552,11 @@ const CameraGraphic: React.FC<{ frame: number; fps: number }> = ({ frame, fps })
       <svg width={360} height={260} style={{ overflow: "visible" }}>
         <defs>
           {/* Deep lens gradient — pure black at outer edge for clean fade-to-black when zooming */}
+          {/* Black starts at 60% so the zoom reaches pure-black before scale runs out */}
           <radialGradient id="vcam-lens" cx="38%" cy="35%" r="70%">
             <stop offset="0%"   stopColor="#0c1840" />
-            <stop offset="45%"  stopColor="#030810" />
-            <stop offset="75%"  stopColor="#000000" />
+            <stop offset="35%"  stopColor="#030810" />
+            <stop offset="60%"  stopColor="#000000" />
             <stop offset="100%" stopColor="#000000" />
           </radialGradient>
         </defs>
@@ -650,7 +651,7 @@ export const TheDevTeam: React.FC = () => {
   // This creates the "flying into the lens" dolly effect — the camera rushes
   // toward the viewer until the dark glass fills and blacks out the screen.
   // The lens glass gradient ends in pure black, so the transition is clean.
-  const zoomScale = interpolate(frame, [T.lensStart, T.lensEnd], [1, 22], {
+  const zoomScale = interpolate(frame, [T.lensStart, T.lensEnd], [1, 35], {
     ...CLAMP,
     easing: EASE_IN,
   });
