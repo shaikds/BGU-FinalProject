@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""
+"""`
 File containing the inference script for T-DEED.
 """
 
