@@ -1,45 +1,25 @@
 import React from "react";
 import {
   AbsoluteFill,
+  Easing,
   interpolate,
   spring,
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
 import { F, SVG_HALF } from "./TheFrustration";
-import { SMOOTH } from "./SoccerIntro";
+import { Field, SMOOTH } from "./SoccerIntro";
+import { PERSPECTIVE_PX, TILT_DEG } from "./SoccerIntroSticks";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 const CLAMP = {
   extrapolateLeft: "clamp" as const,
   extrapolateRight: "clamp" as const,
 };
+// Accelerating ease for the lens zoom — starts slow, rushes at the end
+const EASE_IN = Easing.bezier(0.5, 0, 0.9, 1);
 
-// ── Football pitch geometry (top-down view, fits 1920×1080) ─────────────────
-// Pitch rect: x=40, y=20, w=1840, h=1040. Scale ≈ 17.5 px/m (horiz), 15.3 px/m (vert).
-const PX = 40;   // pitch left
-const PY = 20;   // pitch top
-const PW = 1840; // pitch width
-const PH = 1040; // pitch height
-const MX = PX + PW / 2; // 960 — halfway line x
-const MY = PY + PH / 2; // 540 — centre y
-
-// Penalty area: 16.5m deep × 40.3m wide (centred)
-const PA_D  = 290; // depth (px)
-const PA_H  = 624; // height (px)
-const PA_Y  = MY - PA_H / 2; // 228
-
-// Goal area: 5.5m deep × 18.3m wide
-const GA_D  = 96;
-const GA_H  = 288;
-const GA_Y  = MY - GA_H / 2; // 396
-
-// Penalty spots (11m from goal line = ~193px)
-const PS_OX = 194; // offset from pitch edge
-// Goals (7.32m wide)
-const GOAL_H = 112;
-const GOAL_D = 30;  // depth behind goal line
-const GOAL_Y = MY - GOAL_H / 2; // 484
+// (No top-down pitch constants — the background reuses the 2.5D Field from SoccerIntro.)
 
 // ── Timing ─────────────────────────────────────────────────────────────────
 const T = {
@@ -76,127 +56,56 @@ const CAM_DIV_T  = 375;
 const LENS_SCR_X = 960;   // 845 + 115
 const LENS_SCR_Y = 490;   // 375 + 115
 
-// ── Background — top-down football pitch ────────────────────────────────────
+// ── Background — 2.5D football pitch (same technique as TheFrustration) ────
+// Uses the same Field + rotateX perspective wrapper so the scene matches
+// the rest of the video series.
 const Background: React.FC<{ frame: number; glowUp: boolean }> = ({ frame, glowUp }) => {
-  // Warm glow above each figure's head when lightbulbs turn on
   const glowOp = glowUp
     ? interpolate(frame, [T.bulbOn, T.bulbOn + 20], [0, 0.55], CLAMP)
     : 0;
 
-  // Grass stripes — 10 vertical bands across the pitch
-  const STRIPE_W = PW / 10; // 184px
-  const STRIPE_DARK  = "#1a6a0a";
-  const STRIPE_LIGHT = "#1f7b0c";
-
-  const W = "white";
-  const LW = 5; // line width
-
   return (
-    <AbsoluteFill style={{ backgroundColor: "#0d2208" }}>
-      <svg
-        style={{ position: "absolute", width: "100%", height: "100%" }}
-        viewBox="0 0 1920 1080"
-      >
-        <defs>
-          {/* Clip: area outside left penalty area */}
-          <clipPath id="dt-pa-left-clip">
-            <rect x={PX + PA_D} y={PY} width={PW - PA_D} height={PH} />
-          </clipPath>
-          {/* Clip: area outside right penalty area */}
-          <clipPath id="dt-pa-right-clip">
-            <rect x={PX} y={PY} width={PW - PA_D} height={PH} />
-          </clipPath>
-        </defs>
+    <AbsoluteFill style={{ backgroundColor: "#000" }}>
+      {/* ── 2.5D perspective container (mirrors SoccerSticksVisuals) ── */}
+      <AbsoluteFill style={{
+        perspective: `${PERSPECTIVE_PX}px`,
+        perspectiveOrigin: "50% 30%",
+      }}>
+        <AbsoluteFill style={{
+          transformStyle: "preserve-3d",
+          transform: `rotateX(${TILT_DEG}deg)`,
+          transformOrigin: "50% 50%",
+        }}>
+          {/* Static field only — no animated players */}
+          <Field width={1920} height={1080} />
+        </AbsoluteFill>
+      </AbsoluteFill>
 
-        {/* Grass stripes */}
-        {Array.from({ length: 10 }, (_, i) => (
-          <rect
-            key={i}
-            x={PX + i * STRIPE_W} y={PY}
-            width={STRIPE_W} height={PH}
-            fill={i % 2 === 0 ? STRIPE_DARK : STRIPE_LIGHT}
-          />
-        ))}
-
-        {/* ── Pitch boundary ── */}
-        <rect x={PX} y={PY} width={PW} height={PH}
-          fill="none" stroke={W} strokeWidth={LW} />
-
-        {/* ── Halfway line ── */}
-        <line x1={MX} y1={PY} x2={MX} y2={PY + PH} stroke={W} strokeWidth={LW} />
-
-        {/* ── Centre circle + spot ── */}
-        <circle cx={MX} cy={MY} r={100} fill="none" stroke={W} strokeWidth={LW} />
-        <circle cx={MX} cy={MY} r={8} fill={W} />
-
-        {/* ── Left penalty area ── */}
-        <rect x={PX} y={PA_Y} width={PA_D} height={PA_H}
-          fill="none" stroke={W} strokeWidth={LW} />
-        {/* Left goal area */}
-        <rect x={PX} y={GA_Y} width={GA_D} height={GA_H}
-          fill="none" stroke={W} strokeWidth={LW} />
-        {/* Left penalty spot */}
-        <circle cx={PX + PS_OX} cy={MY} r={7} fill={W} />
-        {/* Left penalty arc — circle clipped to outside the penalty area */}
-        <circle cx={PX + PS_OX} cy={MY} r={100}
-          fill="none" stroke={W} strokeWidth={LW}
-          clipPath="url(#dt-pa-left-clip)" />
-
-        {/* ── Right penalty area ── */}
-        <rect x={PX + PW - PA_D} y={PA_Y} width={PA_D} height={PA_H}
-          fill="none" stroke={W} strokeWidth={LW} />
-        {/* Right goal area */}
-        <rect x={PX + PW - GA_D} y={GA_Y} width={GA_D} height={GA_H}
-          fill="none" stroke={W} strokeWidth={LW} />
-        {/* Right penalty spot */}
-        <circle cx={PX + PW - PS_OX} cy={MY} r={7} fill={W} />
-        {/* Right penalty arc */}
-        <circle cx={PX + PW - PS_OX} cy={MY} r={100}
-          fill="none" stroke={W} strokeWidth={LW}
-          clipPath="url(#dt-pa-right-clip)" />
-
-        {/* ── Corner arcs (r=46, quarter circles at each corner) ── */}
-        <path d={`M ${PX},${PY + 46} A 46,46 0 0 1 ${PX + 46},${PY}`}
-          fill="none" stroke={W} strokeWidth={LW} />
-        <path d={`M ${PX + PW - 46},${PY} A 46,46 0 0 1 ${PX + PW},${PY + 46}`}
-          fill="none" stroke={W} strokeWidth={LW} />
-        <path d={`M ${PX},${PY + PH - 46} A 46,46 0 0 0 ${PX + 46},${PY + PH}`}
-          fill="none" stroke={W} strokeWidth={LW} />
-        <path d={`M ${PX + PW - 46},${PY + PH} A 46,46 0 0 0 ${PX + PW},${PY + PH - 46}`}
-          fill="none" stroke={W} strokeWidth={LW} />
-
-        {/* ── Goals (net area beyond goal line) ── */}
-        <rect x={PX - GOAL_D} y={GOAL_Y} width={GOAL_D} height={GOAL_H}
-          fill="rgba(255,255,255,0.08)" stroke={W} strokeWidth={4} />
-        <rect x={PX + PW} y={GOAL_Y} width={GOAL_D} height={GOAL_H}
-          fill="rgba(255,255,255,0.08)" stroke={W} strokeWidth={4} />
-
-        {/* ── Warm bulb glows above each figure's head ── */}
-        {glowOp > 0.01 && (
-          <>
-            {/* Dev1 head: screen (500, 600) */}
-            <radialGradient id="dt-glow1" cx="500" cy="600" r="320"
-              gradientUnits="userSpaceOnUse">
-              <stop offset="0%"   stopColor="rgba(255,220,50,1)"  stopOpacity={glowOp} />
-              <stop offset="100%" stopColor="rgba(255,220,50,0)"  stopOpacity={0} />
-            </radialGradient>
-            <rect x={0} y={0} width={1920} height={1080} fill="url(#dt-glow1)" />
-            {/* Dev2 head: screen (1420, 600) */}
-            <radialGradient id="dt-glow2" cx="1420" cy="600" r="320"
-              gradientUnits="userSpaceOnUse">
-              <stop offset="0%"   stopColor="rgba(255,220,50,1)"  stopOpacity={glowOp} />
-              <stop offset="100%" stopColor="rgba(255,220,50,0)"  stopOpacity={0} />
-            </radialGradient>
-            <rect x={0} y={0} width={1920} height={1080} fill="url(#dt-glow2)" />
-          </>
-        )}
-      </svg>
-
-      {/* Vignette — darken outer edges */}
+      {/* Slight darkening overlay to set mood */}
       <div style={{
-        position: "absolute",
-        inset: 0,
-        background: "radial-gradient(ellipse 88% 82% at 50% 50%, transparent 52%, rgba(0,0,0,0.55) 100%)",
+        position: "absolute", inset: 0,
+        background: "rgba(0,0,0,0.18)",
+        pointerEvents: "none",
+      }} />
+
+      {/* Warm bulb glows (flat, screen-space, one per figure) */}
+      {glowOp > 0.01 && (
+        <>
+          <div style={{
+            position: "absolute", inset: 0, pointerEvents: "none",
+            background: `radial-gradient(circle 330px at 500px 600px, rgba(255,220,50,${glowOp.toFixed(2)}) 0%, transparent 100%)`,
+          }} />
+          <div style={{
+            position: "absolute", inset: 0, pointerEvents: "none",
+            background: `radial-gradient(circle 330px at 1420px 600px, rgba(255,220,50,${glowOp.toFixed(2)}) 0%, transparent 100%)`,
+          }} />
+        </>
+      )}
+
+      {/* Vignette */}
+      <div style={{
+        position: "absolute", inset: 0,
+        background: "radial-gradient(ellipse 90% 85% at 50% 50%, transparent 55%, rgba(0,0,0,0.55) 100%)",
         pointerEvents: "none",
       }} />
     </AbsoluteFill>
@@ -214,10 +123,12 @@ interface DevFigureProps {
   isTalking:  boolean;
   enterFrom:  "left" | "right";
   appearAt:   number;
+  // Which way to shift pupils so the figure looks toward the speech bubble
+  lookDir:    "left" | "right";
 }
 
 const DevFigure: React.FC<DevFigureProps> = ({
-  frame, fps, footX, footY, color, hairStyle, isTalking, enterFrom, appearAt,
+  frame, fps, footX, footY, color, hairStyle, isTalking, enterFrom, appearAt, lookDir,
 }) => {
   if (frame < appearAt) return null;
 
@@ -231,16 +142,20 @@ const DevFigure: React.FC<DevFigureProps> = ({
   });
   const enterX = (1 - slideIn) * (enterFrom === "left" ? -700 : 700);
 
-  // Subtle body sway
-  const swayAmp    = Math.min(localFrame / 60, 1) * 3;
-  const bodyShiftX = Math.sin(frame * 0.6) * swayAmp;
+  // Static pose — no body or arm sway
+  const bodyShiftX = 0;
 
-  // Relaxed arms at sides with gentle pendulum sway
-  const armSway = Math.sin(frame * 0.45) * 6;
-  const rax = F.shoulderArmX + 40 + armSway;
-  const ray = F.hipY - 20;           // hang below shoulder, above foot
-  const lax = -(F.shoulderArmX + 40 + armSway * 0.75);
+  // Arms relaxed at sides, fixed position
+  const rax = F.shoulderArmX + 40;
+  const ray = F.hipY - 20;
+  const lax = -(F.shoulderArmX + 40);
   const lay = F.hipY - 20;
+
+  // Pupil shift so each figure looks toward the speech bubble (up + toward centre)
+  // Bubble centre: screen (960, 205). Dev1 head: (500,600) → look right+up.
+  // Dev2 head: (1420,600) → look left+up. Shift ≈ 4px horizontal, 3px up.
+  const pxShift = lookDir === "right" ? 4 : -4;
+  const pyShift = -3; // up toward bubble
 
   // Face fades in with entrance
   const faceOp = interpolate(localFrame, [5, 22], [0, 1], CLAMP);
@@ -344,14 +259,14 @@ const DevFigure: React.FC<DevFigureProps> = ({
           {/* ── Face (fades in with entrance) ── */}
           <g opacity={faceOp}>
 
-            {/* Eyes — round, friendly */}
+            {/* Eyes — round, friendly; pupils shifted toward speech bubble */}
             <ellipse cx={-26} cy={F.headY - 12} rx={14} ry={11} fill="white" />
-            <circle  cx={-24} cy={F.headY - 10} r={6}           fill="#111" />
-            <circle  cx={-20} cy={F.headY - 14} r={3}           fill="rgba(255,255,255,0.7)" />
+            <circle  cx={-24 + pxShift} cy={F.headY - 10 + pyShift} r={6}  fill="#111" />
+            <circle  cx={-20 + pxShift} cy={F.headY - 14 + pyShift} r={3}  fill="rgba(255,255,255,0.7)" />
 
             <ellipse cx={ 26} cy={F.headY - 12} rx={14} ry={11} fill="white" />
-            <circle  cx={ 28} cy={F.headY - 10} r={6}           fill="#111" />
-            <circle  cx={ 32} cy={F.headY - 14} r={3}           fill="rgba(255,255,255,0.7)" />
+            <circle  cx={ 28 + pxShift} cy={F.headY - 10 + pyShift} r={6}  fill="#111" />
+            <circle  cx={ 32 + pxShift} cy={F.headY - 14 + pyShift} r={3}  fill="rgba(255,255,255,0.7)" />
 
             {/* Mouth — talking oval or neutral smile */}
             {mouthOpen > 2 ? (
@@ -590,7 +505,9 @@ const IdeaBubble: React.FC<{ frame: number; fps: number }> = ({ frame, fps }) =>
 };
 
 // ── CameraGraphic ──────────────────────────────────────────────────────────
-// Broadcast-style video camera. SVG 420×240.
+// Handheld consumer camcorder silhouette matching the reference icon:
+// large circular lens on the left, rounded-rect body to the right,
+// grip handle below. SVG 360×260.
 // Lens barrel centre: SVG (115, 115) → screen (960, 490).
 //
 // Parts:
@@ -614,12 +531,11 @@ const CameraGraphic: React.FC<{ frame: number; fps: number }> = ({ frame, fps })
 
   // Lens glow pulses brighter as the zoom-in approaches
   const preGlow = interpolate(frame, [T.lensStart - 18, T.lensStart], [0, 1], CLAMP);
-  const glowR   = 52 + preGlow * 30;
-  const glowOp  = preGlow * 0.75;
+  const glowOp  = preGlow * 0.85;
 
-  // REC light blinks every ~20 frames while camera is on screen
-  const recOn = frame >= T.cameraIn + 15;
-  const recBlink = recOn ? (Math.floor(frame / 20) % 2 === 0 ? 1 : 0.3) : 0;
+  // REC light blinks every ~20 frames
+  const recOn    = frame >= T.cameraIn + 15;
+  const recBlink = recOn ? (Math.floor(frame / 20) % 2 === 0 ? 1 : 0.2) : 0;
 
   return (
     <div
@@ -627,216 +543,97 @@ const CameraGraphic: React.FC<{ frame: number; fps: number }> = ({ frame, fps })
         position: "absolute",
         left: CAM_DIV_L,
         top:  CAM_DIV_T,
-        width:  420,
-        height: 240,
+        width:  360,
+        height: 260,
         transform: `translateY(${enterY}px)`,
         pointerEvents: "none",
       }}
     >
-      <svg width={420} height={240} style={{ overflow: "visible" }}>
+      <svg width={360} height={260} style={{ overflow: "visible" }}>
         <defs>
-          {/* Radial gradient for lens depth */}
-          <radialGradient id="lensGrad" cx="40%" cy="35%" r="65%">
-            <stop offset="0%"   stopColor="#1a3a8a" stopOpacity="0.9" />
-            <stop offset="60%"  stopColor="#04102e" stopOpacity="1" />
-            <stop offset="100%" stopColor="#000510" stopOpacity="1" />
+          {/* Deep lens gradient — pure black at outer edge for clean fade-to-black when zooming */}
+          <radialGradient id="vcam-lens" cx="38%" cy="35%" r="70%">
+            <stop offset="0%"   stopColor="#0c1840" />
+            <stop offset="45%"  stopColor="#030810" />
+            <stop offset="75%"  stopColor="#000000" />
+            <stop offset="100%" stopColor="#000000" />
           </radialGradient>
         </defs>
 
-        {/* ── Top carry handle ── */}
-        <rect x={88} y={20} width={210} height={28} rx={6}
-          fill="#1a1a2e" stroke="#42A5F5" strokeWidth={2} />
-        {/* Handle grip texture lines */}
-        {[108, 128, 148, 168, 188, 208, 228, 248, 268].map((x, i) => (
-          <line key={i} x1={x} y1={24} x2={x} y2={44}
-            stroke="rgba(66,165,245,0.3)" strokeWidth={1} />
-        ))}
-
-        {/* ── Shotgun microphone ── */}
-        <rect x={132} y={5} width={118} height={15} rx={5}
-          fill="#0d1117" stroke="#42A5F5" strokeWidth={1.5} />
-        {/* Mic capsule dots */}
-        {[148, 162, 176, 190, 204, 218].map((x, i) => (
-          <circle key={i} cx={x} cy={12} r={2.5}
-            fill="rgba(66,165,245,0.5)" />
-        ))}
-        {/* Mic mount / clip */}
-        <rect x={178} y={18} width={26} height={6} rx={2}
-          fill="#1a1a2e" stroke="#42A5F5" strokeWidth={1} />
-
-        {/* ── Main body ── */}
-        <rect x={68} y={46} width={272} height={128} rx={10}
+        {/* ── Body (rounded-rect to the right of lens) ── */}
+        <rect x={108} y={18} width={230} height={182} rx={22}
           fill="#1a1a2e" stroke="#42A5F5" strokeWidth={3} />
 
-        {/* Body top edge accent line */}
-        <line x1={78} y1={50} x2={330} y2={50}
-          stroke="rgba(66,165,245,0.3)" strokeWidth={1} />
+        {/* Body zoom slider slot */}
+        <rect x={162} y={40} width={128} height={11} rx={5}
+          fill="#0d1117" stroke="#42A5F5" strokeWidth={1.5} />
+        <rect x={162} y={40} width={52} height={11} rx={5}
+          fill="rgba(66,165,245,0.45)" />
 
-        {/* ── Lens assembly ── */}
-        {/* Lens hood (square-to-circle adapter at front) */}
-        <rect x={44} y={82} width={34} height={66} rx={5}
-          fill="#111827" stroke="#42A5F5" strokeWidth={2} />
+        {/* Small button on body */}
+        <circle cx={308} cy={62} r={8}
+          fill="#0d1117" stroke="#42A5F5" strokeWidth={1.5} />
+        <circle cx={308} cy={62} r={3} fill="#42A5F5" />
 
-        {/* Outer focus ring — textured band */}
-        <circle cx={115} cy={115} r={62}
-          fill="#111827" stroke="#42A5F5" strokeWidth={3} />
-        {/* Focus ring grip markings */}
-        {Array.from({ length: 16 }, (_, i) => {
-          const a = (i / 16) * Math.PI * 2;
-          const r1 = 55, r2 = 63;
-          return (
-            <line
-              key={i}
-              x1={115 + r1 * Math.cos(a)} y1={115 + r1 * Math.sin(a)}
-              x2={115 + r2 * Math.cos(a)} y2={115 + r2 * Math.sin(a)}
-              stroke="rgba(66,165,245,0.45)" strokeWidth={2}
-            />
-          );
-        })}
+        {/* ── Grip / handle (bottom-left, the icon's distinctive feature) ── */}
+        <rect x={80} y={183} width={96} height={74} rx={16}
+          fill="#141420" stroke="#42A5F5" strokeWidth={2.5} />
+        {[198, 211, 224, 237].map((y, i) => (
+          <line key={i} x1={88} y1={y} x2={168} y2={y}
+            stroke="rgba(66,165,245,0.2)" strokeWidth={1} />
+        ))}
 
-        {/* Zoom ring — inner band */}
-        <circle cx={115} cy={115} r={55}
-          fill="#0c1320" stroke="rgba(100,160,255,0.4)" strokeWidth={2} />
-        {/* Zoom markings */}
-        {Array.from({ length: 8 }, (_, i) => {
-          const a = (i / 8) * Math.PI * 2 - Math.PI / 8;
-          return (
-            <line
-              key={i}
-              x1={115 + 47 * Math.cos(a)} y1={115 + 47 * Math.sin(a)}
-              x2={115 + 54 * Math.cos(a)} y2={115 + 54 * Math.sin(a)}
-              stroke="rgba(66,165,245,0.6)" strokeWidth={1.5}
-            />
-          );
-        })}
+        {/* ── Lens assembly (dominant left feature, matching icon shape) ── */}
 
-        {/* Lens barrel body */}
-        <circle cx={115} cy={115} r={46}
-          fill="#06091a" stroke="rgba(66,130,200,0.5)" strokeWidth={1} />
-
-        {/* Lens glass — deep layered reflections */}
-        <circle cx={115} cy={115} r={43} fill="url(#lensGrad)" />
-        <circle cx={115} cy={115} r={34}
-          fill="rgba(8,20,70,0.92)" stroke="rgba(80,160,255,0.28)" strokeWidth={1} />
-        <circle cx={115} cy={115} r={22}
-          fill="rgba(12,30,90,0.88)" stroke="rgba(80,160,255,0.2)" strokeWidth={1} />
-        <circle cx={115} cy={115} r={11}
-          fill="rgba(18,44,120,0.94)" />
-        <circle cx={115} cy={115} r={4}
-          fill="rgba(40,80,180,1)" />
-
-        {/* Lens glare — off-centre arc */}
-        <path d="M 96,96 Q 88,108 92,118"
-          stroke="rgba(255,255,255,0.55)" strokeWidth={4.5}
-          fill="none" strokeLinecap="round" />
-        <circle cx={100} cy={94} r={4}
-          fill="rgba(255,255,255,0.35)" />
-
-        {/* Pre-zoom lens glow */}
+        {/* Pre-zoom glow halo */}
         {glowOp > 0.01 && (
-          <circle cx={115} cy={115} r={glowR}
+          <circle cx={115} cy={115} r={100 + preGlow * 35}
             fill="none"
-            stroke={`rgba(100,180,255,${glowOp.toFixed(2)})`}
+            stroke={`rgba(66,190,255,${glowOp.toFixed(2)})`}
             strokeWidth={10}
           />
         )}
 
-        {/* ── Viewfinder housing (back right) ── */}
-        <rect x={334} y={56} width={68} height={50} rx={7}
-          fill="#1a1a2e" stroke="#42A5F5" strokeWidth={2} />
-        {/* Viewfinder screen (tiny LCD) */}
-        <rect x={340} y={62} width={42} height={32} rx={3}
-          fill="#0a1a0a" stroke="rgba(66,165,245,0.5)" strokeWidth={1} />
-        <rect x={343} y={65} width={36} height={26} rx={2}
-          fill="rgba(0,80,30,0.5)" />
-        {/* Eyepiece cup */}
-        <ellipse cx={408} cy={81} rx={14} ry={20}
-          fill="#111" stroke="#42A5F5" strokeWidth={2} />
-        <ellipse cx={408} cy={81} rx={9} ry={14}
-          fill="#050a05" />
+        {/* Outer bezel ring */}
+        <circle cx={115} cy={115} r={93}
+          fill="#0f0f1e" stroke="#42A5F5" strokeWidth={3} />
 
-        {/* ── Hand grip (bottom right) ── */}
-        <rect x={308} y={134} width={52} height={82} rx={9}
-          fill="#151520" stroke="#42A5F5" strokeWidth={2} />
-        {/* Grip texture */}
-        {[148, 162, 176, 190, 204].map((y, i) => (
-          <line key={i} x1={312} y1={y} x2={356} y2={y}
-            stroke="rgba(66,165,245,0.22)" strokeWidth={1} />
-        ))}
-        {/* Trigger / record button on grip */}
-        <circle cx={334} cy={142} r={8}
-          fill="#ff1744" stroke="#b71c1c" strokeWidth={2}
-          opacity={recBlink} />
+        {/* Inner bezel */}
+        <circle cx={115} cy={115} r={82}
+          fill="#0b0b18" stroke="rgba(66,140,220,0.45)" strokeWidth={2} />
 
-        {/* ── REC indicator LED (front of body) ── */}
-        <circle cx={94} cy={64} r={7}
+        {/* Lens glass layers — progressively darker → pure black at edge
+            so the scene-scale zoom ends in a pure-black screen             */}
+        <circle cx={115} cy={115} r={70} fill="url(#vcam-lens)" />
+        <circle cx={115} cy={115} r={54}
+          fill="#030610" stroke="rgba(60,130,220,0.2)" strokeWidth={1} />
+        <circle cx={115} cy={115} r={37}
+          fill="#020408" />
+        <circle cx={115} cy={115} r={21}
+          fill="#010204" />
+        <circle cx={115} cy={115} r={9}
+          fill="#000000" />
+
+        {/* Glare highlight */}
+        <circle cx={90} cy={88} r={7}
+          fill="rgba(255,255,255,0.6)" />
+        <path d="M 83,96 Q 76,110 80,118"
+          stroke="rgba(255,255,255,0.38)"
+          strokeWidth={4} fill="none" strokeLinecap="round" />
+
+        {/* ── REC indicator ── */}
+        <circle cx={184} cy={168} r={6}
           fill="#ff1744" stroke="#b71c1c" strokeWidth={1.5}
           opacity={recBlink} />
-        {/* LED glow halo */}
         {recBlink > 0.5 && (
-          <circle cx={94} cy={64} r={13}
-            fill="none"
-            stroke="rgba(255,23,68,0.35)"
-            strokeWidth={4} />
+          <circle cx={184} cy={168} r={12}
+            fill="none" stroke="rgba(255,23,68,0.3)" strokeWidth={3} />
         )}
-
-        {/* ── Control panel detail ── */}
-        <rect x={210} y={60} width={32} height={20} rx={3}
-          fill="rgba(66,165,245,0.1)" stroke="#42A5F5" strokeWidth={1} />
-        <circle cx={218} cy={70} r={4}
-          fill="rgba(66,165,245,0.6)" />
-        <circle cx={232} cy={70} r={4}
-          fill="rgba(100,200,100,0.5)" />
-
-        {/* Zoom rocker on top of body */}
-        <rect x={250} y={46} width={38} height={10} rx={4}
-          fill="#0d1117" stroke="#42A5F5" strokeWidth={1.5} />
-        <rect x={250} y={46} width={16} height={10} rx={4}
-          fill="rgba(66,165,245,0.3)" />
       </svg>
     </div>
   );
 };
-
-// ── LensZoom ───────────────────────────────────────────────────────────────
-// A black circle centred on the camera lens expands to cover the entire screen.
-// Blue iris ring trails the expanding edge for a cinematic feel.
-const LensZoom: React.FC<{ frame: number }> = ({ frame }) => {
-  if (frame < T.lensStart) return null;
-
-  // Start at r=52 — the lens barrel radius — so it looks like the iris opens
-  // outward from inside the glass rather than appearing from nothing.
-  const r = interpolate(frame, [T.lensStart, T.lensEnd], [52, 1650], {
-    ...CLAMP,
-    easing: SMOOTH,
-  });
-
-  const ringOpacity = interpolate(
-    frame,
-    [T.lensStart, T.lensStart + 25, T.lensEnd - 15, T.lensEnd],
-    [0, 0.65, 0.45, 0],
-    CLAMP,
-  );
-
-  return (
-    <AbsoluteFill style={{ pointerEvents: "none" }}>
-      <svg
-        style={{ position: "absolute", width: "100%", height: "100%" }}
-        viewBox="0 0 1920 1080"
-        preserveAspectRatio="none"
-      >
-        <circle cx={LENS_SCR_X} cy={LENS_SCR_Y} r={r} fill="black" />
-        <circle
-          cx={LENS_SCR_X} cy={LENS_SCR_Y}
-          r={r + 10}
-          fill="none"
-          stroke={`rgba(66,165,245,${ringOpacity.toFixed(2)})`}
-          strokeWidth={6}
-        />
-      </svg>
-    </AbsoluteFill>
-  );
-};
+// LensZoom is removed — the scene-scale zoom in TheDevTeam replaces it.
 
 // ── TheDevTeam ─────────────────────────────────────────────────────────────
 export const TheDevTeam: React.FC = () => {
@@ -848,12 +645,29 @@ export const TheDevTeam: React.FC = () => {
   // Figures and lightbulb fade out together as camera takes over
   const figGroupOp = interpolate(frame, [T.figFadeStart, T.figFadeEnd], [1, 0], CLAMP);
 
+  // ── Zoom-into-lens transition ──────────────────────────────────────────────
+  // The entire scene scales up centred on the camera lens (960, 490).
+  // This creates the "flying into the lens" dolly effect — the camera rushes
+  // toward the viewer until the dark glass fills and blacks out the screen.
+  // The lens glass gradient ends in pure black, so the transition is clean.
+  const zoomScale = interpolate(frame, [T.lensStart, T.lensEnd], [1, 22], {
+    ...CLAMP,
+    easing: EASE_IN,
+  });
+  const zoomStyle = frame >= T.lensStart
+    ? {
+        transform: `scale(${zoomScale})`,
+        transformOrigin: `${LENS_SCR_X}px ${LENS_SCR_Y}px`,
+      }
+    : {};
+
   return (
-    <AbsoluteFill>
+    <AbsoluteFill style={zoomStyle}>
       <Background frame={frame} glowUp={glowUp} />
 
       {/* Figures + bulb layer */}
       <div style={{ opacity: figGroupOp, pointerEvents: "none" }}>
+        {/* Dev1 — indigo, curly hair, left side, talking, looks right toward bubble */}
         <DevFigure
           frame={frame}
           fps={fps}
@@ -864,7 +678,9 @@ export const TheDevTeam: React.FC = () => {
           isTalking={true}
           enterFrom="left"
           appearAt={T.dev1In}
+          lookDir="right"
         />
+        {/* Dev2 — teal, short hair, right side, listening, looks left toward bubble */}
         <DevFigure
           frame={frame}
           fps={fps}
@@ -875,6 +691,7 @@ export const TheDevTeam: React.FC = () => {
           isTalking={false}
           enterFrom="right"
           appearAt={T.dev2In}
+          lookDir="left"
         />
         <LightBulb frame={frame} fps={fps} scrX={500} />
         <LightBulb frame={frame} fps={fps} scrX={1420} />
@@ -883,9 +700,8 @@ export const TheDevTeam: React.FC = () => {
       {/* Speech bubble (has its own earlier fade-out) */}
       <IdeaBubble frame={frame} fps={fps} />
 
-      {/* Camera slides up, then lens zoom covers everything */}
+      {/* Camera slides up; at T.lensStart the entire scene scales into its lens */}
       <CameraGraphic frame={frame} fps={fps} />
-      <LensZoom frame={frame} />
     </AbsoluteFill>
   );
 };
