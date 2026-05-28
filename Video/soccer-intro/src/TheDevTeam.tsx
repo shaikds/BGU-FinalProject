@@ -61,13 +61,15 @@ const IDEA_LINES = [
 ];
 
 // ── Camera + lens absolute screen coordinates ──────────────────────────────
-// Camera body centred at (960, 490). Lens circle at cx=80, cy=78 within SVG.
-// div offset: left = 960-100 = 860, top = 490-70 = 420.
-// Lens screen: (860+80, 420+78) = (940, 498).
-const CAM_DIV_L  = 860;
-const CAM_DIV_T  = 420;
-const LENS_SCR_X = 940;
-const LENS_SCR_Y = 498;
+// Video camera SVG is 420×240. Lens barrel centre at SVG (115, 115).
+// We want the lens at screen (960, 490) — the exact screen centre — so the
+// LensZoom explosion feels symmetrical.
+//   div left = 960 − 115 = 845
+//   div top  = 490 − 115 = 375
+const CAM_DIV_L  = 845;
+const CAM_DIV_T  = 375;
+const LENS_SCR_X = 960;   // 845 + 115
+const LENS_SCR_Y = 490;   // 375 + 115
 
 // ── Background ──────────────────────────────────────────────────────────────
 const Background: React.FC<{ frame: number; glowUp: boolean }> = ({ frame, glowUp }) => {
@@ -496,7 +498,18 @@ const IdeaBubble: React.FC<{ frame: number; fps: number }> = ({ frame, fps }) =>
 };
 
 // ── CameraGraphic ──────────────────────────────────────────────────────────
-// Body 200×130px. Lens circle at SVG (80, 78). Screen: see CAM_DIV_L/T above.
+// Broadcast-style video camera. SVG 420×240.
+// Lens barrel centre: SVG (115, 115) → screen (960, 490).
+//
+// Parts:
+//  • Top carry handle
+//  • Shotgun microphone on handle
+//  • Main rectangular body
+//  • Large lens assembly (hood → focus ring → barrel → glass layers)
+//  • Viewfinder housing + eyepiece (back right)
+//  • Hand-grip (bottom right)
+//  • Recording indicator light (red LED)
+//  • Small control panel and LCD detail
 const CameraGraphic: React.FC<{ frame: number; fps: number }> = ({ frame, fps }) => {
   if (frame < T.cameraIn - 5) return null;
 
@@ -507,54 +520,187 @@ const CameraGraphic: React.FC<{ frame: number; fps: number }> = ({ frame, fps })
   });
   const enterY = (1 - slideIn) * 320;
 
+  // Lens glow pulses brighter as the zoom-in approaches
+  const preGlow = interpolate(frame, [T.lensStart - 18, T.lensStart], [0, 1], CLAMP);
+  const glowR   = 52 + preGlow * 30;
+  const glowOp  = preGlow * 0.75;
+
+  // REC light blinks every ~20 frames while camera is on screen
+  const recOn = frame >= T.cameraIn + 15;
+  const recBlink = recOn ? (Math.floor(frame / 20) % 2 === 0 ? 1 : 0.3) : 0;
+
   return (
     <div
       style={{
         position: "absolute",
         left: CAM_DIV_L,
         top:  CAM_DIV_T,
-        width:  200,
-        height: 160,
+        width:  420,
+        height: 240,
         transform: `translateY(${enterY}px)`,
         pointerEvents: "none",
       }}
     >
-      <svg width={200} height={160} style={{ overflow: "visible" }}>
+      <svg width={420} height={240} style={{ overflow: "visible" }}>
+        <defs>
+          {/* Radial gradient for lens depth */}
+          <radialGradient id="lensGrad" cx="40%" cy="35%" r="65%">
+            <stop offset="0%"   stopColor="#1a3a8a" stopOpacity="0.9" />
+            <stop offset="60%"  stopColor="#04102e" stopOpacity="1" />
+            <stop offset="100%" stopColor="#000510" stopOpacity="1" />
+          </radialGradient>
+        </defs>
 
-        {/* Camera body */}
-        <rect x={0} y={20} width={200} height={110} rx={12} fill="#1a1a2e" stroke="#42A5F5" strokeWidth={3} />
+        {/* ── Top carry handle ── */}
+        <rect x={88} y={20} width={210} height={28} rx={6}
+          fill="#1a1a2e" stroke="#42A5F5" strokeWidth={2} />
+        {/* Handle grip texture lines */}
+        {[108, 128, 148, 168, 188, 208, 228, 248, 268].map((x, i) => (
+          <line key={i} x1={x} y1={24} x2={x} y2={44}
+            stroke="rgba(66,165,245,0.3)" strokeWidth={1} />
+        ))}
 
-        {/* Top accessory strip */}
-        <rect x={65} y={8} width={44} height={16} rx={4} fill="#1a1a2e" stroke="#42A5F5" strokeWidth={2} />
-        {/* Shutter button */}
-        <circle cx={165} cy={16} r={10} fill="#1a1a2e" stroke="#42A5F5" strokeWidth={2} />
-        <circle cx={165} cy={16} r={4}  fill="#42A5F5" />
+        {/* ── Shotgun microphone ── */}
+        <rect x={132} y={5} width={118} height={15} rx={5}
+          fill="#0d1117" stroke="#42A5F5" strokeWidth={1.5} />
+        {/* Mic capsule dots */}
+        {[148, 162, 176, 190, 204, 218].map((x, i) => (
+          <circle key={i} cx={x} cy={12} r={2.5}
+            fill="rgba(66,165,245,0.5)" />
+        ))}
+        {/* Mic mount / clip */}
+        <rect x={178} y={18} width={26} height={6} rx={2}
+          fill="#1a1a2e" stroke="#42A5F5" strokeWidth={1} />
 
-        {/* Strap loops */}
-        <circle cx={5}   cy={78} r={9} fill="none" stroke="#42A5F5" strokeWidth={3} />
-        <circle cx={195} cy={78} r={9} fill="none" stroke="#42A5F5" strokeWidth={3} />
+        {/* ── Main body ── */}
+        <rect x={68} y={46} width={272} height={128} rx={10}
+          fill="#1a1a2e" stroke="#42A5F5" strokeWidth={3} />
 
-        {/* Lens housing ring */}
-        <circle cx={80} cy={78} r={50} fill="#111827" stroke="#42A5F5" strokeWidth={3} />
+        {/* Body top edge accent line */}
+        <line x1={78} y1={50} x2={330} y2={50}
+          stroke="rgba(66,165,245,0.3)" strokeWidth={1} />
 
-        {/* Lens glass — layered concentric circles for depth */}
-        <circle cx={80} cy={78} r={42} fill="rgba(8,18,55,0.95)" />
-        <circle cx={80} cy={78} r={32} fill="rgba(12,26,72,0.92)" stroke="rgba(100,160,255,0.3)" strokeWidth={1} />
-        <circle cx={80} cy={78} r={20} fill="rgba(18,38,100,0.88)" stroke="rgba(100,160,255,0.22)" strokeWidth={1} />
-        <circle cx={80} cy={78} r={10} fill="rgba(28,56,140,0.9)" />
+        {/* ── Lens assembly ── */}
+        {/* Lens hood (square-to-circle adapter at front) */}
+        <rect x={44} y={82} width={34} height={66} rx={5}
+          fill="#111827" stroke="#42A5F5" strokeWidth={2} />
 
-        {/* Lens highlight glare */}
-        <path
-          d="M 63,60 Q 56,70 60,76"
-          stroke="rgba(255,255,255,0.55)"
-          strokeWidth={4}
-          fill="none"
-          strokeLinecap="round"
-        />
+        {/* Outer focus ring — textured band */}
+        <circle cx={115} cy={115} r={62}
+          fill="#111827" stroke="#42A5F5" strokeWidth={3} />
+        {/* Focus ring grip markings */}
+        {Array.from({ length: 16 }, (_, i) => {
+          const a = (i / 16) * Math.PI * 2;
+          const r1 = 55, r2 = 63;
+          return (
+            <line
+              key={i}
+              x1={115 + r1 * Math.cos(a)} y1={115 + r1 * Math.sin(a)}
+              x2={115 + r2 * Math.cos(a)} y2={115 + r2 * Math.sin(a)}
+              stroke="rgba(66,165,245,0.45)" strokeWidth={2}
+            />
+          );
+        })}
 
-        {/* Right-side body detail panel */}
-        <rect x={148} y={50} width={34} height={22} rx={4} fill="rgba(66,165,245,0.12)" stroke="#42A5F5" strokeWidth={1.5} />
-        <rect x={150} y={82} width={30} height={14} rx={3} fill="rgba(66,165,245,0.10)" stroke="#42A5F5" strokeWidth={1} />
+        {/* Zoom ring — inner band */}
+        <circle cx={115} cy={115} r={55}
+          fill="#0c1320" stroke="rgba(100,160,255,0.4)" strokeWidth={2} />
+        {/* Zoom markings */}
+        {Array.from({ length: 8 }, (_, i) => {
+          const a = (i / 8) * Math.PI * 2 - Math.PI / 8;
+          return (
+            <line
+              key={i}
+              x1={115 + 47 * Math.cos(a)} y1={115 + 47 * Math.sin(a)}
+              x2={115 + 54 * Math.cos(a)} y2={115 + 54 * Math.sin(a)}
+              stroke="rgba(66,165,245,0.6)" strokeWidth={1.5}
+            />
+          );
+        })}
+
+        {/* Lens barrel body */}
+        <circle cx={115} cy={115} r={46}
+          fill="#06091a" stroke="rgba(66,130,200,0.5)" strokeWidth={1} />
+
+        {/* Lens glass — deep layered reflections */}
+        <circle cx={115} cy={115} r={43} fill="url(#lensGrad)" />
+        <circle cx={115} cy={115} r={34}
+          fill="rgba(8,20,70,0.92)" stroke="rgba(80,160,255,0.28)" strokeWidth={1} />
+        <circle cx={115} cy={115} r={22}
+          fill="rgba(12,30,90,0.88)" stroke="rgba(80,160,255,0.2)" strokeWidth={1} />
+        <circle cx={115} cy={115} r={11}
+          fill="rgba(18,44,120,0.94)" />
+        <circle cx={115} cy={115} r={4}
+          fill="rgba(40,80,180,1)" />
+
+        {/* Lens glare — off-centre arc */}
+        <path d="M 96,96 Q 88,108 92,118"
+          stroke="rgba(255,255,255,0.55)" strokeWidth={4.5}
+          fill="none" strokeLinecap="round" />
+        <circle cx={100} cy={94} r={4}
+          fill="rgba(255,255,255,0.35)" />
+
+        {/* Pre-zoom lens glow */}
+        {glowOp > 0.01 && (
+          <circle cx={115} cy={115} r={glowR}
+            fill="none"
+            stroke={`rgba(100,180,255,${glowOp.toFixed(2)})`}
+            strokeWidth={10}
+          />
+        )}
+
+        {/* ── Viewfinder housing (back right) ── */}
+        <rect x={334} y={56} width={68} height={50} rx={7}
+          fill="#1a1a2e" stroke="#42A5F5" strokeWidth={2} />
+        {/* Viewfinder screen (tiny LCD) */}
+        <rect x={340} y={62} width={42} height={32} rx={3}
+          fill="#0a1a0a" stroke="rgba(66,165,245,0.5)" strokeWidth={1} />
+        <rect x={343} y={65} width={36} height={26} rx={2}
+          fill="rgba(0,80,30,0.5)" />
+        {/* Eyepiece cup */}
+        <ellipse cx={408} cy={81} rx={14} ry={20}
+          fill="#111" stroke="#42A5F5" strokeWidth={2} />
+        <ellipse cx={408} cy={81} rx={9} ry={14}
+          fill="#050a05" />
+
+        {/* ── Hand grip (bottom right) ── */}
+        <rect x={308} y={134} width={52} height={82} rx={9}
+          fill="#151520" stroke="#42A5F5" strokeWidth={2} />
+        {/* Grip texture */}
+        {[148, 162, 176, 190, 204].map((y, i) => (
+          <line key={i} x1={312} y1={y} x2={356} y2={y}
+            stroke="rgba(66,165,245,0.22)" strokeWidth={1} />
+        ))}
+        {/* Trigger / record button on grip */}
+        <circle cx={334} cy={142} r={8}
+          fill="#ff1744" stroke="#b71c1c" strokeWidth={2}
+          opacity={recBlink} />
+
+        {/* ── REC indicator LED (front of body) ── */}
+        <circle cx={94} cy={64} r={7}
+          fill="#ff1744" stroke="#b71c1c" strokeWidth={1.5}
+          opacity={recBlink} />
+        {/* LED glow halo */}
+        {recBlink > 0.5 && (
+          <circle cx={94} cy={64} r={13}
+            fill="none"
+            stroke="rgba(255,23,68,0.35)"
+            strokeWidth={4} />
+        )}
+
+        {/* ── Control panel detail ── */}
+        <rect x={210} y={60} width={32} height={20} rx={3}
+          fill="rgba(66,165,245,0.1)" stroke="#42A5F5" strokeWidth={1} />
+        <circle cx={218} cy={70} r={4}
+          fill="rgba(66,165,245,0.6)" />
+        <circle cx={232} cy={70} r={4}
+          fill="rgba(100,200,100,0.5)" />
+
+        {/* Zoom rocker on top of body */}
+        <rect x={250} y={46} width={38} height={10} rx={4}
+          fill="#0d1117" stroke="#42A5F5" strokeWidth={1.5} />
+        <rect x={250} y={46} width={16} height={10} rx={4}
+          fill="rgba(66,165,245,0.3)" />
       </svg>
     </div>
   );
@@ -566,7 +712,9 @@ const CameraGraphic: React.FC<{ frame: number; fps: number }> = ({ frame, fps })
 const LensZoom: React.FC<{ frame: number }> = ({ frame }) => {
   if (frame < T.lensStart) return null;
 
-  const r = interpolate(frame, [T.lensStart, T.lensEnd], [44, 1650], {
+  // Start at r=52 — the lens barrel radius — so it looks like the iris opens
+  // outward from inside the glass rather than appearing from nothing.
+  const r = interpolate(frame, [T.lensStart, T.lensEnd], [52, 1650], {
     ...CLAMP,
     easing: SMOOTH,
   });
