@@ -22,6 +22,12 @@ def _backup_if_exists(path: Path) -> None:
 
 
 def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--video", type=str, default=None, help="Optional override video path")
+    args, _ = parser.parse_known_args()
+
     det_path = ROOT / "outputs" / "detections" / "predictions.json"
     out_dir = ROOT / "outputs" / "tracks"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -31,7 +37,7 @@ def main():
 
     data = json.loads(det_path.read_text())
 
-    video_path = data.get("video", None)
+    video_path = args.video if args.video else data.get("video", None)
     fps = float(data.get("fps", 30.0) or 30.0)
     total_frames = int(data.get("total_frames", 0) or 0)
     stride = int(data.get("stride", 1) or 1)
@@ -44,12 +50,14 @@ def main():
     frames = sorted(frames, key=lambda x: int(x.get("frame_index", -1)))
 
     print("Using ByteTrack with supervision:", sv.__version__)
+    
+    # tracking parameters (can change to test better fits)
     tracker = sv.ByteTrack(
         track_activation_threshold=0.25,
         lost_track_buffer=30,
         minimum_matching_threshold=0.8,
         frame_rate=float(fps),
-        minimum_consecutive_frames=1,
+        minimum_consecutive_frames=2,
     )
 
     rows: List[Dict[str, Any]] = []
@@ -116,6 +124,26 @@ def main():
                 }
             )
 
+
+
+    # Preserve every raw ball detection from predictions.json WITHOUT adding it to rows.
+    # This keeps the original ByteTrack output and track IDs exactly as in FIRST,
+    # while downstream stages can still access all raw label=0 ball detections.
+    ball_detections = []
+    for f in frames:
+        fi = int(f.get("frame_index", -1))
+        for j, d in enumerate(f.get("detections", []) or []):
+            if int(d.get("label", -1)) == 0:
+                ball_detections.append({
+                    "frame_index": fi,
+                    "ball_detection_id": int(fi * 1000 + j),
+                    "bbox_xyxy": [float(x) for x in d["bbox_xyxy"]],
+                    "score": float(d.get("score", 0.0)),
+                    "label": 0,
+                    "source": "raw_detection_sidecar",
+                    "is_tracked": False,
+                })
+
     payload = {
         "video": str(video_path) if video_path is not None else None,
         "fps": float(fps),
@@ -124,6 +152,9 @@ def main():
         "num_detection_frames_in": int(len(frames)),
         "num_detections_in": int(total_in),
         "num_tracked_rows": int(len(rows)),
+        "num_raw_ball_detections_kept": int(len(ball_detections)),
+        "ball_policy": "sidecar_only: tracks list is unchanged from FIRST ByteTrack output; all raw label=0 detections are in ball_detections",
+        "ball_detections": ball_detections,
         "tracks": rows,
     }
 
@@ -134,6 +165,7 @@ def main():
     print("num detection frames:", len(frames), "| stride:", stride)
     print("num dets in:", total_in)
     print("num tracked rows:", len(rows))
+    print("num raw ball detections kept:", len(ball_detections))
     if rows:
         print("unique track_ids:", len(set(r["track_id"] for r in rows)))
         print("sample row:", rows[0])
