@@ -127,6 +127,7 @@ TEAM_COLORS = {
 }
 REFEREE_COLOR = (0, 255, 255)
 UNKNOWN_COLOR = (255, 255, 255)
+BALL_COLOR = (0, 255, 0)
 
 
 # =============================================================================
@@ -722,6 +723,228 @@ def collect_track_prediction_crops(video_path: Path, tracks: List[dict]) -> Tupl
     return track_crops, track_meta
 
 
+def collect_track_prediction_embeddings(video_path: Path, tracks: List[dict], classifier: 'TeamClassifierV2', embed_batch_size: int = 16) -> Tuple[Dict[int, np.ndarray], Dict[int, dict]]:
+    """Stream prediction crops through the embedding backend and return per-track embeddings.
+
+    This avoids storing all raw crops in memory. Embeddings are accumulated per track
+    as small batches are processed.
+    """
+    by_tid_rows = defaultdict(list)
+    for row in tracks:
+        label = int(row.get("label", -1))
+        if label not in TEAM_ASSIGNMENT_LABELS:
+            continue
+        by_tid_rows[int(row["track_id"])].append(row)
+
+    sampled_by_frame = defaultdict(list)
+    track_meta: Dict[int, dict] = {}
+
+    for tid, rows in sorted(by_tid_rows.items()):
+        rows = sorted(rows, key=lambda r: int(r["frame_index"]))
+        label = int(rows[0]["label"])
+        frame_indices = [int(r["frame_index"]) for r in rows]
+
+        if len(rows) <= MAX_CROPS_PER_TRACK_FOR_PREDICT:
+            sampled = rows
+        else:
+            idxs = np.linspace(0, len(rows) - 1, MAX_CROPS_PER_TRACK_FOR_PREDICT).round().astype(int)
+            sampled = [rows[i] for i in idxs]
+
+        for row in sampled:
+            sampled_by_frame[int(row["frame_index"])].append(row)
+
+        all_centers = [bbox_center([float(v) for v in r["bbox_xyxy"]]) for r in rows]
+        all_bottoms = [bottom_center([float(v) for v in r["bbox_xyxy"]]) for r in rows]
+        all_whs = [bbox_wh([float(v) for v in r["bbox_xyxy"]]) for r in rows]
+
+        track_meta[tid] = {
+            "label": label,
+            "start_frame": min(frame_indices),
+            "end_frame": max(frame_indices),
+            "count": len(rows),
+            "mean_center_xy": np.mean(np.array(all_centers, dtype=np.float32), axis=0),
+            "mean_bottom_center_xy": np.mean(np.array(all_bottoms, dtype=np.float32), axis=0),
+            "mean_bbox_wh": np.mean(np.array(all_whs, dtype=np.float32), axis=0),
+            "mean_color_lab": np.array([0, 0, 0], dtype=np.float32),
+        }
+
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise RuntimeError(f"Cannot open video: {video_path}")
+
+    track_embeddings: Dict[int, List[np.ndarray]] = defaultdict(list)
+    labs_by_tid: Dict[int, List[np.ndarray]] = defaultdict(list)
+
+    sampled_frames = sorted(sampled_by_frame.keys())
+    print(
+        f"Streaming prediction embeddings: {len(sampled_frames)} frames, {len(by_tid_rows)} track IDs, max {MAX_CROPS_PER_TRACK_FOR_PREDICT} crops/track"
+    )
+
+    current_frame_idx = -1
+    batch_crops: List[np.ndarray] = []
+    batch_tids: List[int] = []
+
+    def flush_batch():
+        nonlocal batch_crops, batch_tids
+        if not batch_crops:
+            return
+        try:
+            embs = classifier.embedding_backend.embed(batch_crops, batch_size=embed_batch_size)
+        except Exception as e:
+            print(f"Embedding batch failed: {e}")
+            batch_crops = []
+            batch_tids = []
+            return
+
+        for i, tid in enumerate(batch_tids):
+            track_embeddings[tid].append(embs[i])
+
+        # free memory
+        batch_crops = []
+        batch_tids = []
+
+    for k, frame_idx in enumerate(sampled_frames):
+        if k % 250 == 0:
+            print(f"  streaming frame {k + 1}/{len(sampled_frames)}")
+
+        if frame_idx != current_frame_idx + 1:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+
+        ret, frame = cap.read()
+        current_frame_idx = frame_idx
+        if not ret:
+            continue
+
+        for row in sampled_by_frame[frame_idx]:
+            tid = int(row["track_id"])
+            label = int(row["label"])
+            bbox = [float(v) for v in row["bbox_xyxy"]]
+
+            crop = torso_crop_from_frame(frame, bbox)
+            if crop is None:
+                continue
+            if not isinstance(crop, np.ndarray):
+                continue
+            if crop.ndim != 3 or crop.shape[2] != 3:
+                continue
+            ch, cw = crop.shape[:2]
+            if ch < MIN_TRAIN_CROP_H or cw < MIN_TRAIN_CROP_W:
+                continue
+
+            batch_crops.append(crop)
+            batch_tids.append(tid)
+            labs_by_tid[tid].append(upper_body_lab_mean(crop))
+
+            if len(batch_crops) >= embed_batch_size:
+                flush_batch()
+
+    # flush remaining
+    flush_batch()
+    cap.release()
+
+    # stack embeddings per track
+    track_embeddings_out: Dict[int, np.ndarray] = {}
+    for tid, embs in track_embeddings.items():
+        if embs:
+            track_embeddings_out[tid] = np.stack(embs, axis=0).astype(np.float32)
+        else:
+            track_embeddings_out[tid] = np.zeros((0, 0), dtype=np.float32)
+
+    for tid, labs in labs_by_tid.items():
+        if labs:
+            track_meta[tid]["mean_color_lab"] = np.mean(np.stack(labs, axis=0), axis=0).astype(np.float32)
+
+    print(f"Collected embeddings for {len(track_embeddings_out)} track IDs")
+    return track_embeddings_out, track_meta
+
+
+def build_assignments_from_embeddings(
+    classifier: TeamClassifierV2,
+    track_embeddings: Dict[int, np.ndarray],
+    track_meta: Dict[int, dict],
+) -> Dict[int, TrackAssignment]:
+    """Build assignments using precomputed embeddings per track (streaming mode)."""
+    assignments: Dict[int, TrackAssignment] = {}
+
+    for tid, meta in sorted(track_meta.items()):
+        label = int(meta["label"])
+        emb = track_embeddings.get(tid)
+
+        team_id: Optional[int] = None
+        confidence: Optional[float] = None
+        votes: Dict[str, int] = {}
+        method = "unassigned"
+
+        if emb is None or emb.size == 0:
+            method = "no_embeddings"
+        else:
+            X_for_cluster = emb
+            if classifier.use_projection and classifier.reducer is not None:
+                try:
+                    X_for_cluster = classifier.reducer.transform(emb).astype(np.float32)
+                except Exception:
+                    X_for_cluster = emb
+
+            try:
+                labels = classifier.cluster_model.predict(X_for_cluster).astype(np.int32)
+            except Exception:
+                labels = np.zeros(len(X_for_cluster), dtype=np.int32)
+
+            confs = np.ones(len(labels), dtype=np.float32)
+            try:
+                if hasattr(classifier.cluster_model, "transform"):
+                    dists = classifier.cluster_model.transform(X_for_cluster)
+                elif hasattr(classifier.cluster_model, "distances"):
+                    dists = classifier.cluster_model.distances(X_for_cluster)
+                else:
+                    dists = None
+
+                if dists is not None and dists.shape[1] >= 2:
+                    sorted_d = np.sort(dists, axis=1)
+                    margin = sorted_d[:, 1] - sorted_d[:, 0]
+                    scale = np.maximum(sorted_d[:, 1], 1e-6)
+                    confs = np.clip(margin / scale, 0.0, 1.0).astype(np.float32)
+            except Exception:
+                pass
+
+            team_id, confidence, votes = majority_vote(labels, confs)
+            method = "embedding_vote_stream"
+
+        mean_color_lab = np.array(track_meta[tid].get("mean_color_lab", np.array([0, 0, 0], dtype=np.float32)))
+        referee_like = maybe_referee_like(label, int(meta["count"]), confidence, mean_color_lab)
+
+        assignments[tid] = TrackAssignment(
+            track_id=tid,
+            label=label,
+            start_frame=int(meta["start_frame"]),
+            end_frame=int(meta["end_frame"]),
+            count=int(meta["count"]),
+            team_id=team_id,
+            team_confidence=confidence,
+            referee_like=referee_like,
+            mean_color_lab=[round(float(x), 3) for x in mean_color_lab.tolist()],
+            mean_center_xy=[round(float(x), 3) for x in meta["mean_center_xy"].tolist()],
+            mean_bottom_center_xy=[round(float(x), 3) for x in meta["mean_bottom_center_xy"].tolist()],
+            mean_bbox_wh=[round(float(x), 3) for x in meta["mean_bbox_wh"].tolist()],
+            votes=votes,
+            method=method,
+        )
+
+    if ASSIGN_GOALKEEPERS_BY_POSITION:
+        team_centroids = compute_team_position_centroids(assignments)
+        for a in assignments.values():
+            if a.label in GOALKEEPER_LABELS:
+                team_id, conf = resolve_goalkeeper_team_by_position(a, team_centroids)
+                a.team_id = team_id
+                a.team_confidence = conf
+                a.method = "goalkeeper_position_centroid"
+                a.referee_like = False
+
+    # Do not add ball pass-throughs here; main() will preserve raw ball rows instead.
+
+    return assignments
+
+
 # =============================================================================
 # Team assignment logic
 # =============================================================================
@@ -904,6 +1127,7 @@ def save_assignments(
     classifier_debug: Dict[str, Any],
     out_path: Path,
     ball_detections: Optional[List[dict]] = None,
+    all_tracks: Optional[List[dict]] = None,
 ) -> None:
     _backup_if_exists(out_path)
 
@@ -933,6 +1157,14 @@ def save_assignments(
         "ball_detections": ball_detections or [],
         "tracks": rows,
     }
+
+    # Preserve original ball rows from the input tracks.json (as-is)
+    if all_tracks is not None:
+        try:
+            ball_rows = [r for r in all_tracks if int(r.get("label", -1)) in BALL_LABELS]
+        except Exception:
+            ball_rows = []
+        payload["ball_rows"] = ball_rows
 
     with open(out_path, "w") as f:
         json.dump(payload, f, indent=2)
@@ -986,7 +1218,7 @@ def save_overlay_video(video_path: Path, all_tracks: List[dict], assignments: Di
         if a is None:
             return UNKNOWN_COLOR, "UNK"
         if a.label in BALL_LABELS:
-            return (0, 255, 0), "BALL"
+            return BALL_COLOR, "BALL"
         if a.referee_like:
             return REFEREE_COLOR, "REF?"
         if a.team_id in TEAM_COLORS:
@@ -1013,8 +1245,19 @@ def save_overlay_video(video_path: Path, all_tracks: List[dict], assignments: Di
             x2 = max(0, min(w, x2))
             y2 = max(0, min(h, y2))
 
-            color, team_txt = style_for_track(tid)
-            text = f"TID:{tid} {team_txt}"
+            if label in BALL_LABELS:
+                color = (0, 255, 0)
+                team_txt = "BALL"
+                text = "BALL"
+            else:
+                if label in BALL_LABELS:
+                    color = BALL_COLOR
+                    text = "BALL"
+                else:
+                    color, team_txt = style_for_track(tid)
+                    text = f"TID:{tid} {team_txt}"
+                # color, team_txt = style_for_track(tid)
+                # text = f"TID:{tid} {team_txt}"
 
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
 
@@ -1055,13 +1298,12 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--video", type=str, default=None, help="Optional override video path")
+    parser.add_argument("--video", type=str, required=True, help="Path to input video (required)")
     args, _ = parser.parse_known_args()
 
-    # Allow overriding the global VIDEO_PATH from CLI while keeping default otherwise.
-    if args.video:
-        global VIDEO_PATH
-        VIDEO_PATH = Path(args.video)
+    # Force VIDEO_PATH to the CLI parameter (required)
+    global VIDEO_PATH
+    VIDEO_PATH = Path(args.video)
 
     _ensure_paths_exist()
 
@@ -1082,14 +1324,19 @@ def main() -> None:
     train_crops = [r.crop_bgr for r in training_records]
     train_labels = classifier.fit(train_crops)
 
-    track_crops, track_meta = collect_track_prediction_crops(VIDEO_PATH, all_tracks)
-    print("Prediction crops collected")
-    assignments = build_assignments(classifier, track_crops, track_meta)
+    track_embeddings, track_meta = collect_track_prediction_embeddings(VIDEO_PATH, all_tracks, classifier, embed_batch_size=8)
+    print("Prediction embeddings collected")
+    assignments = build_assignments_from_embeddings(classifier, track_embeddings, track_meta)
+
+    # Add label=0 ball rows as pass-through assignments.
+    # No team assignment is performed on them.
+    assignments.update(build_ball_pass_through_assignments(all_tracks))
+    
     ball_detections = raw_meta.get("ball_detections", [])
 
     assignment_path = OUT_DIR / "team_assignment_v2.json"
     debug_path = OUT_DIR / "team_assignment_v2_debug.json"
-    save_assignments(assignments, classifier.debug_info, assignment_path, ball_detections)
+    save_assignments(assignments, classifier.debug_info, assignment_path, ball_detections, all_tracks)
     save_debug(training_records, train_labels, classifier, debug_path)
 
     if SAVE_OVERLAY_VIDEO:

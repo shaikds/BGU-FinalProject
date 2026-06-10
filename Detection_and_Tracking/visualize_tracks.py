@@ -1,4 +1,5 @@
 # visualize_tracks.py
+from cProfile import label
 import json
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -10,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 VIS_STRIDE = 1
 SAVE_FRAMES = False  # full video can be huge
-
+BALL_COLOR = (0, 255, 0)
 
 def read_json(p: Path) -> dict:
     return json.loads(p.read_text())
@@ -122,7 +123,7 @@ def main():
             tid = int(r.get("track_id", -1))
             score = r.get("score", None)
             label = r.get("label", None)
-            color = id_to_color(tid)
+            color = BALL_COLOR if int(label) == 0 else id_to_color(tid)            
             s_txt = f"{float(score):.2f}" if score is not None else "NA"
             l_txt = f"{int(label)}" if label is not None else "NA"
             draw_bbox(frame_bgr, box, f"id={tid} cls={l_txt} s={s_txt}", color=color)

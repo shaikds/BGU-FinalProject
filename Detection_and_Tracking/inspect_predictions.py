@@ -55,6 +55,14 @@ def main() -> None:
         if frames:
             print("first frame_index:", frames[0].get("frame_index"))
             print("last frame_index:", frames[-1].get("frame_index"))
+            ball_count = sum(
+                1
+                for frame in frames
+                for det in frame.get("detections", [])
+                if int(det.get("label", -1)) == 0
+            )
+
+            print("ball_detections:", ball_count)
 
     else:
         print("Unsupported JSON top-level type:", type(data))

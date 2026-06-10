@@ -41,7 +41,7 @@ MAX_DET = 60
 # 1 = every frame, 2 = every other frame, etc.
 STRIDE = 1
 
-# None = process the full videoc:\Users\Shaked\Downloads\team_assignment_v2_final.py
+# None = process the full video
 MAX_FRAMES: Optional[int] = None
 
 # If predictions.json already exists, move it aside before overwriting.
@@ -224,9 +224,17 @@ def main():
 
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--video", type=str, default=None, help="Path to input video")
+    # Also accept a positional video path so the script can be called as:
+    #   python detect_video.py /path/to/video.mp4
+    parser.add_argument("pos_video", nargs="?", default=None, help="Positional path to input video (alternative to --video)")
     args, _ = parser.parse_known_args()
 
-    video_path = Path(args.video) if args.video else ROOT / "data" / "seconds_video.mp4"
+    # Prefer the explicit --video flag, fall back to the positional argument.
+    video_arg = args.video or args.pos_video
+    if video_arg is None:
+        parser.error("Missing input video. Provide --video or pass the video path as a positional argument.")
+
+    video_path = Path(video_arg)
     out_dir = ROOT / "outputs" / "detections"
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -254,7 +262,7 @@ def main():
     # We are not rebuilding the model manually and not changing its code.
     # ------------------------------------------------------------
     print("Loading RFDETRSoccerNet detector...")
-    model = RFDETRSoccerNet()
+    model = RFDETRSoccerNet(model_path=str(ROOT / "weights" / "checkpoint_best_regular.pth"))
 
     # ------------------------------------------------------------
     # Run inference through the repo's intended public API.

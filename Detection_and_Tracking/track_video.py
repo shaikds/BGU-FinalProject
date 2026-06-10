@@ -97,9 +97,24 @@ def main():
             tracker.update_with_detections(empty)
             continue
 
-        xyxy = np.array([d["bbox_xyxy"] for d in dets_list], dtype=np.float32)
-        conf = np.array([d.get("score", 0.0) for d in dets_list], dtype=np.float32)
-        cls = np.array([d.get("label", -1) for d in dets_list], dtype=np.int64)
+        # Do NOT track the ball with ByteTrack.
+        # Ball detections pass through unchanged as label=0 rows.
+        trackable_dets_list = [
+            d for d in dets_list
+            if int(d.get("label", -1)) != 0
+        ]
+
+        if not trackable_dets_list:
+            tracker.update_with_detections(empty)
+            continue
+
+        xyxy = np.array([d["bbox_xyxy"] for d in trackable_dets_list], dtype=np.float32)
+        conf = np.array([d.get("score", 0.0) for d in trackable_dets_list], dtype=np.float32)
+        cls = np.array([d.get("label", -1) for d in trackable_dets_list], dtype=np.int64)
+
+        # xyxy = np.array([d["bbox_xyxy"] for d in dets_list], dtype=np.float32)
+        # conf = np.array([d.get("score", 0.0) for d in dets_list], dtype=np.float32)
+        # cls = np.array([d.get("label", -1) for d in dets_list], dtype=np.int64)
 
         dets = sv.Detections(xyxy=xyxy, confidence=conf, class_id=cls)
         tracked = tracker.update_with_detections(dets)
@@ -144,6 +159,21 @@ def main():
                     "is_tracked": False,
                 })
 
+    # Add every raw ball detection into the main tracks list as pass-through rows.
+    # Use negative track IDs to avoid collision with ByteTrack player IDs.
+    for b in ball_detections:
+        rows.append({
+            "frame_index": int(b["frame_index"]),
+            "track_id": -int(b["ball_detection_id"]) - 1,
+            "bbox_xyxy": b["bbox_xyxy"],
+            "score": float(b.get("score", 0.0)),
+            "label": 0,
+            "source": "raw_ball_pass_through",
+            "is_tracked": False,
+        })
+
+    rows = sorted(rows, key=lambda r: (int(r["frame_index"]), int(r["track_id"])))
+
     payload = {
         "video": str(video_path) if video_path is not None else None,
         "fps": float(fps),
@@ -153,7 +183,7 @@ def main():
         "num_detections_in": int(total_in),
         "num_tracked_rows": int(len(rows)),
         "num_raw_ball_detections_kept": int(len(ball_detections)),
-        "ball_policy": "sidecar_only: tracks list is unchanged from FIRST ByteTrack output; all raw label=0 detections are in ball_detections",
+        "ball_policy": "pass_through: all raw label=0 detections are copied into tracks and also kept in ball_detections",
         "ball_detections": ball_detections,
         "tracks": rows,
     }

@@ -30,6 +30,6 @@ python pipeline/visualize_detections.py --video "$VIDEO_PATH"
 python pipeline/track_video.py --video "$VIDEO_PATH"
 python pipeline/visualize_tracks.py --video "$VIDEO_PATH"
 
-python pipeline/team_assignment_v2.py --video "$VIDEO_PATH"
+python pipeline/pteam_assignment_v2.py --video "$VIDEO_PATH"
 
 python pipeline/reid_prtreid_v2.py --video "$VIDEO_PATH"

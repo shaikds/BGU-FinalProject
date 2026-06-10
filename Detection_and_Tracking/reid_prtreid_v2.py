@@ -196,6 +196,9 @@ SAVE_OVERLAY_VIDEO = True
 OVERLAY_VIDEO_NAME = "reid_overlay.mp4"
 BACKUP_ON_OVERWRITE = True
 
+BALL_LABELS = {0}
+BALL_COLOR = (0, 255, 0)
+
 
 # ============================================================================
 # Utilities
@@ -1806,6 +1809,120 @@ def save_embeddings(
 # ============================================================================
 # Overlay video
 # ============================================================================
+# def save_overlay_video(
+#     video_path: Path,
+#     all_tracks: List[dict],
+#     trackid_to_globalid: Dict[int, int],
+#     out_path: Path,
+# ) -> None:
+#     """
+#     Save a video with local track_id + merged global_id drawn on each box.
+#     """
+#     _backup_if_exists(out_path)
+
+#     cap = cv2.VideoCapture(str(video_path))
+#     if not cap.isOpened():
+#         raise RuntimeError(f"Cannot open video: {video_path}")
+
+#     fps = cap.get(cv2.CAP_PROP_FPS)
+#     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+#     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+#     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+#     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+#     out = cv2.VideoWriter(str(out_path), fourcc, fps, (w, h))
+
+#     unique_gids = sorted(set(trackid_to_globalid.values()))
+#     np.random.seed(42)
+#     gid_colors = {}
+#     for gid in unique_gids:
+#         gid_colors[gid] = tuple(int(c) for c in np.random.randint(50, 255, size=3))
+
+#     frame_to_tracks = defaultdict(list)
+#     for t in all_tracks:
+#         frame_to_tracks[int(t["frame_index"])].append(t)
+
+#     for frame_idx in range(total):
+#         ret, frame = cap.read()
+#         if not ret:
+#             break
+        
+#         if frame_idx % 100 == 0:
+#             print(f"Video overlay progress: frame {frame_idx}/{total}", flush=True)
+
+#         entries = frame_to_tracks.get(frame_idx, [])
+#         for t in entries:
+#             tid = int(t["track_id"])
+
+#             label = int(t.get("label", -1))
+
+#             if label in BALL_LABELS:
+#                 gid = None
+#             else:
+#                 gid = trackid_to_globalid.get(tid)
+#                 if gid is None:
+#                     continue
+
+#             # label = int(t.get("label", -1))
+
+#             # if label == 0:
+#             #     gid = None
+#             # else:
+#             #     gid = trackid_to_globalid.get(tid)
+#             #     if gid is None:
+#             #         continue
+
+#             x1, y1, x2, y2 = [int(v) for v in t["bbox_xyxy"]]
+#             x1 = max(0, x1)
+#             y1 = max(0, y1)
+#             x2 = min(w, x2)
+#             y2 = min(h, y2)
+
+#             if label in BALL_LABELS:
+#                 color = BALL_COLOR
+#                 label_txt = "BALL"
+#             else:
+#                 color = gid_colors[gid]
+#                 label_txt = f"TID:{tid} GID:{gid}"
+
+#             # if label == 0:
+#             #     color = (0, 255, 0)
+#             #     label_txt = "BALL"
+#             # else:
+#             #     color = gid_colors[gid]
+#             #     label_txt = f"TID:{tid} GID:{gid}"
+
+#             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+
+#             font = cv2.FONT_HERSHEY_SIMPLEX
+#             font_scale = 0.45
+#             thickness = 1
+#             (tw, th), _ = cv2.getTextSize(label_txt, font, font_scale, thickness)
+
+#             y_top = max(0, y1 - th - 6)
+#             cv2.rectangle(frame, (x1, y_top), (x1 + tw + 4, y1), color, -1)
+
+#             brightness = sum(color) / 3
+#             text_color = (0, 0, 0) if brightness > 128 else (255, 255, 255)
+#             cv2.putText(frame, label_txt, (x1 + 2, y1 - 4), font, font_scale, text_color, thickness)
+
+#         cv2.putText(
+#             frame,
+#             f"Frame {frame_idx}/{total}",
+#             (10, 30),
+#             cv2.FONT_HERSHEY_SIMPLEX,
+#             0.7,
+#             (255, 255, 255),
+#             2,
+#         )
+
+#         out.write(frame)
+
+#     cap.release()
+#     out.release()
+#     print(f"Saved overlay video: {out_path}")
+
+
 def save_overlay_video(
     video_path: Path,
     all_tracks: List[dict],
@@ -1813,7 +1930,8 @@ def save_overlay_video(
     out_path: Path,
 ) -> None:
     """
-    Save a video with local track_id + merged global_id drawn on each box.
+    Save a video with local track_id + merged global_id drawn on each player.
+    Uses a static open ellipse under each player instead of bounding boxes.
     """
     _backup_if_exists(out_path)
 
@@ -1831,6 +1949,7 @@ def save_overlay_video(
 
     unique_gids = sorted(set(trackid_to_globalid.values()))
     np.random.seed(42)
+
     gid_colors = {}
     for gid in unique_gids:
         gid_colors[gid] = tuple(int(c) for c in np.random.randint(50, 255, size=3))
@@ -1839,40 +1958,109 @@ def save_overlay_video(
     for t in all_tracks:
         frame_to_tracks[int(t["frame_index"])].append(t)
 
+    # Players
+    ELLIPSE_W = 80
+    ELLIPSE_H = 25
+    ELLIPSE_THICKNESS = 5
+
+    # Ball
+    BALL_ELLIPSE_W = 42
+    BALL_ELLIPSE_H = 14
+    BALL_ELLIPSE_THICKNESS = 5
+
     for frame_idx in range(total):
         ret, frame = cap.read()
         if not ret:
             break
 
+        if frame_idx % 100 == 0:
+            print(f"Video overlay progress: frame {frame_idx}/{total}", flush=True)
+
         entries = frame_to_tracks.get(frame_idx, [])
+
         for t in entries:
             tid = int(t["track_id"])
-            gid = trackid_to_globalid.get(tid)
-            if gid is None:
-                continue
+            label = int(t.get("label", -1))
+
+            if label == 0:
+                gid = None
+            else:
+                gid = trackid_to_globalid.get(tid)
+                if gid is None:
+                    continue
 
             x1, y1, x2, y2 = [int(v) for v in t["bbox_xyxy"]]
+
             x1 = max(0, x1)
             y1 = max(0, y1)
             x2 = min(w, x2)
             y2 = min(h, y2)
 
-            color = gid_colors[gid]
-            label_txt = f"TID:{tid} GID:{gid}"
+            if label == 0:
+                color = (0, 255, 0)
+                label_txt = "BALL"
+                ellipse_w = BALL_ELLIPSE_W
+                ellipse_h = BALL_ELLIPSE_H
+                ellipse_thickness = BALL_ELLIPSE_THICKNESS
+            else:
+                color = gid_colors[gid]
+                label_txt = f"TID:{tid} GID:{gid}"
+                ellipse_w = ELLIPSE_W
+                ellipse_h = ELLIPSE_H
+                ellipse_thickness = ELLIPSE_THICKNESS
 
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            cx = int((x1 + x2) / 2)
+            cy = int(y2)
+
+            cv2.ellipse(
+                frame,
+                (cx, cy),
+                (ellipse_w, ellipse_h),
+                0,
+                15,
+                345,
+                color,
+                ellipse_thickness,
+                cv2.LINE_AA,
+            )
 
             font = cv2.FONT_HERSHEY_SIMPLEX
             font_scale = 0.45
             thickness = 1
-            (tw, th), _ = cv2.getTextSize(label_txt, font, font_scale, thickness)
 
-            y_top = max(0, y1 - th - 6)
-            cv2.rectangle(frame, (x1, y_top), (x1 + tw + 4, y1), color, -1)
+            (tw, th), _ = cv2.getTextSize(
+                label_txt,
+                font,
+                font_scale,
+                thickness,
+            )
+
+            text_x = max(0, min(w - tw - 6, cx - tw // 2))
+            text_y = min(h - 4, cy + ellipse_h + th + 10)
+
+            box_y1 = max(0, text_y - th - 4)
+            box_y2 = min(h, text_y + 4)
+
+            cv2.rectangle(
+                frame,
+                (text_x, box_y1),
+                (text_x + tw + 4, box_y2),
+                color,
+                -1,
+            )
 
             brightness = sum(color) / 3
             text_color = (0, 0, 0) if brightness > 128 else (255, 255, 255)
-            cv2.putText(frame, label_txt, (x1 + 2, y1 - 4), font, font_scale, text_color, thickness)
+
+            cv2.putText(
+                frame,
+                label_txt,
+                (text_x + 2, text_y),
+                font,
+                font_scale,
+                text_color,
+                thickness,
+            )
 
         cv2.putText(
             frame,
@@ -1888,6 +2076,7 @@ def save_overlay_video(
 
     cap.release()
     out.release()
+
     print(f"Saved overlay video: {out_path}")
 
 
@@ -1904,10 +2093,16 @@ def main() -> None:
     parser.add_argument("--video", type=str, default=None, help="Optional override video path")
     args, _ = parser.parse_known_args()
 
-    # Allow overriding the global VIDEO_PATH from CLI while keeping default otherwise.
-    if args.video:
-        global VIDEO_PATH
-        VIDEO_PATH = Path(args.video)
+    # # Allow overriding the global VIDEO_PATH from CLI while keeping default otherwise.
+    # if args.video:
+    #     global VIDEO_PATH
+    #     VIDEO_PATH = Path(args.video)
+
+    # Force VIDEO_PATH to the CLI parameter (required)
+    global VIDEO_PATH
+    VIDEO_PATH = Path(args.video)
+
+    print(f"Video path: {VIDEO_PATH}")
 
     _ensure_paths_exist()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

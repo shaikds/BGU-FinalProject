@@ -1,4 +1,5 @@
 # visualize_detections.py
+from cProfile import label
 import json
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -11,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # Render every frame by default (full video)
 VIS_STRIDE = 1
 SAVE_FRAMES = False  # for full video this can be huge; set True only for short debugging
-
+BALL_COLOR = (0, 255, 0)
 
 def read_json(p: Path) -> dict:
     return json.loads(p.read_text())
@@ -115,8 +116,9 @@ def main():
                 continue
             score = float(det.get("score", 0.0))
             label = int(det.get("label", -1))
-            draw_bbox(frame_bgr, box, f"cls={label} s={score:.2f}", color=(0, 255, 0))
-
+            color = BALL_COLOR if label == 0 else (0, 255, 0)
+            draw_bbox(frame_bgr, box, f"cls={label} s={score:.2f}", color=color)
+        
         if SAVE_FRAMES:
             jpg_path = frames_dir / f"frame_{fi:06d}.jpg"
             cv2.imwrite(str(jpg_path), frame_bgr)
