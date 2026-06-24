@@ -1,25 +1,19 @@
 # AutoStatAI - A Full Soccer Match Computer Vision Pipeline - Detection, Tracking, Events
-
-## Preview
-https://github.com/user-attachments/assets/540edbd1-3164-40c9-99d7-1bac47bb9768
-
+<video src="https://github.com/user-attachments/assets/540edbd1-3164-40c9-99d7-1bac47bb9768" autoplay loop muted playsinline width="100%"></video>
 
 ## HighLevel Architecture
-We developed our 
-<img width="1142" height="482" alt="image" src="https://github.com/user-attachments/assets/f02c25cd-4dbe-476f-84ba-84c2b2d8e04a" />
-
-
-
-
+We developed our pipeline to be modular, 
+<img width="1143" height="452" alt="image" src="https://github.com/user-attachments/assets/9844ec68-592e-44b2-9f7d-9a996349f287" />
 
 ## [IMPORTANT] Limitations
-
 Based on our test set gathered from real games, we reached to the limitations of our pipeline to maximize results quality:
 - Requires a high-angle camera view similar to professional match broadcasts
 - Distinct 2 jersey colors between teams
 - Grass/synthetic field environments
 - Remove noise from the frames: balls outside of field, people standing outside
-- Nvidia 
+
+## Requirements
+- Nvidia RTX2080 GPU 24GB RAM
  
 ## Quickstart
 1. Clone this repo
