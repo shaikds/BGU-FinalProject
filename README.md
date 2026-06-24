@@ -3,7 +3,7 @@
 
 ## HighLevel Architecture
 We developed our pipeline to be modular, 
-<img width="1143" height="452" alt="image" src="https://github.com/user-attachments/assets/9844ec68-592e-44b2-9f7d-9a996349f287" />
+<img width="500" height="500" alt="preview" src="https://github.com/user-attachments/assets/9844ec68-592e-44b2-9f7d-9a996349f287" />
 
 ## [IMPORTANT] Limitations
 Based on our test set gathered from real games, we reached to the limitations of our pipeline to maximize results quality:
