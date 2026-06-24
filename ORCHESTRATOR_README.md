@@ -3,7 +3,7 @@ ORCHESTRATOR README
 
 What this does
 ---------------
-`orchestrator.py` runs two existing pipeline scripts in parallel:
+`run_both.py` runs two existing pipeline scripts in parallel:
 
 - `/home/shaikar/sn_pipe_trial/pipeline/run_all.sh` (uses conda env `sn_pipe` by default)
 - `/home/shaikar/T-DEED-2/run_models.sh` (uses conda env `tdeed_inference2` by default)
@@ -28,8 +28,6 @@ Run the orchestrator with only the video path (recommended):
 ```bash
 python run_both.py --video /full/path/to/video.mp4
 ```
-OR use:
-python orchestrator.py --video /full/path/to/video.mp4
 
 The orchestrator will:
 
@@ -44,8 +42,6 @@ If you need to override produced file locations or other behaviour, you can pass
 ```bash
 python run_both.py --video /video.mp4 --output my_linked.json --no-conda
 ```
-Or use :
-python orchestrator.py --video /video.mp4 --output my_linked.json --no-conda
 
 Customizing
 -----------
