@@ -1,9 +1,9 @@
 # AutoStatAI - Full Soccer Match Computer Vision Pipeline - Detection, Tracking, Events, Event To Player, Backend, Frontend
-<img width="1143" height="452" alt="FinalProject2_" src="https://github.com/user-attachments/assets/38505ed6-348f-444f-98f6-b472906b7bb8" />
+<img width="500" height="500" alt="FinalProject2_" src="https://github.com/user-attachments/assets/38505ed6-348f-444f-98f6-b472906b7bb8" />
 
 ## HighLevel Architecture
 We developed our pipeline to be modular, 
-<img width="500" height="500" alt="preview" src="https://github.com/user-attachments/assets/9844ec68-592e-44b2-9f7d-9a996349f287" />
+<img width="1143" height="452" alt="preview" src="https://github.com/user-attachments/assets/9844ec68-592e-44b2-9f7d-9a996349f287" />
 
 ## [IMPORTANT] Limitations
 Based on our test set gathered from real games, we reached to the limitations of our pipeline to maximize results quality:
