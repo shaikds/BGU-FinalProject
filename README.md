@@ -1,4 +1,4 @@
-# AutoStatAI - Full Soccer Match Computer Vision Pipeline - Detection, Tracking, Events, Event To Player, Backend, Frontend
+# AutoStatAI: Full Soccer Match Computer Vision Pipeline - Detection, Tracking, Events, Event To Player, Backend, Frontend
 <img width="500" height="350" alt="FinalProject2_" src="https://github.com/user-attachments/assets/38505ed6-348f-444f-98f6-b472906b7bb8" />
 
 ## HighLevel Architecture
@@ -40,7 +40,7 @@ pnpm dev
 
 ## Future Challenges
 In order to make this pipeline more reliable, make sure to follow these steps:
-- Improve ReID - players that are getting out of frame, and then getting back to it, should have the same ID as they had before
+- Improve ReID: players that are getting out of frame, and then getting back to it, should have the same ID as they had before
 - Add calibration module: IT will improve tracking, can be used to improve events detection)
 - Gather data, and then finetune model on low angle shoots
 Note: We suggest to follow SoccerNet challenges that occure every year, and add/update new/existing modules.
