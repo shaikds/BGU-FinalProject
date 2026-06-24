@@ -1,5 +1,6 @@
-# AutoStatAI - A Full Soccer Match Computer Vision Pipeline - Detection, Tracking, Events
-<video src="https://github.com/user-attachments/assets/540edbd1-3164-40c9-99d7-1bac47bb9768" autoplay loop muted playsinline width="100%"></video>
+# AutoStatAI
+### Full Soccer Match Computer Vision Pipeline - Detection, Tracking, Events, Event To Player, Backend, Frontend
+<img width="360" height="203" alt="FinalProject2_" src="https://github.com/user-attachments/assets/88cdf072-1f7e-4ef2-bfb1-e14315ae7fd4" />
 
 ## HighLevel Architecture
 We developed our pipeline to be modular, 
