@@ -1,5 +1,5 @@
 # Quick Start
-## 1. MongoDB (חייב לרוץ)
+## 1. MongoDB
 docker run -d -p 27017:27017 --name mongo mongo
 ## If already created the mongoDB container before, run this instead:
 docker start mongo
