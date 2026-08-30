@@ -42,6 +42,7 @@ pnpm dev
 ## Future Challenges
 In order to make this pipeline more reliable, make sure to follow these steps:
 - Improve ReID: players that are getting out of frame, and then getting back to it, should have the same ID as they had before
+- Create Event2Player module, AI(DL) Model instead of fixed logic code module
 - Add calibration module: IT will improve tracking, can be used to improve events detection)
 - Gather data, and then finetune model on low angle shoots
 Note: We suggest to follow SoccerNet challenges that occure every year, and add/update new/existing modules.
